@@ -1220,13 +1220,22 @@ async function chooseLogo(file){
 }
 
 /* ---------- funcionamento sem internet ---------- */
+async function diagnoseOffline(err){
+  var el=$('#offInfo'),msg='';
+  try{
+    var r=await fetch('sw.js',{cache:'no-store'});
+    if(!r.ok)msg='O arquivo sw.js não foi encontrado no seu site (erro '+r.status+'). Envie o sw.js para a mesma pasta do index.html no GitHub, espere 1 minuto e recarregue a página.';
+  }catch(e){msg='Não consegui ler o sw.js. Conecte à internet e recarregue a página.';}
+  if(!msg)msg='O navegador recusou o modo sem internet ('+(err&&err.name?err.name:'erro')+'). Se estiver numa aba anônima ou com dados de sites bloqueados no Chrome, abra numa aba normal e permita dados de sites para este endereço.';
+  el.textContent=msg;
+}
 function setupOffline(){
   var el=$('#offInfo');
   if(!('serviceWorker' in navigator)||!/^https?:$/.test(location.protocol)){
     el.textContent='Indisponível neste modo. Abra o app pelo link https (GitHub Pages ou Netlify) para ele funcionar sem internet.';
   }else{
     el.textContent='Preparando… mantenha a internet ligada até aparecer "Pronto".';
-    navigator.serviceWorker.register('sw.js').catch(function(){el.textContent='Não foi possível preparar o modo sem internet neste navegador.';});
+    navigator.serviceWorker.register('sw.js').catch(function(err){diagnoseOffline(err);});
     navigator.serviceWorker.ready.then(function(){el.textContent='Pronto: o app abre e funciona sem internet, mesmo depois de fechado.';});
   }
   window.addEventListener('offline',function(){toast('Sem internet. Tudo continua funcionando e fica salvo no aparelho.',5000);});
