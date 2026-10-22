@@ -1,5 +1,5 @@
-/* Fotos de Campo: guarda o app no aparelho para abrir e funcionar sem internet. */
-const CACHE = 'fotos-campo-v4';
+/* GeoPonto: guarda o app no aparelho para abrir e funcionar sem internet. */
+const CACHE = 'fotos-campo-v5';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function (e) {

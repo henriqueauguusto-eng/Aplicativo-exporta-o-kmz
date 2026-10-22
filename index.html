@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>Fotos de Campo</title>
+<title>GeoPonto</title>
 <style>
 /* Ferramenta de campo em coluna única: projetos, pontos (um poste = um ponto com várias fotos), câmera em destaque
    e barra fixa de exportação. Cobre (condutor) como cor de ação sobre neutros azul-acinzentados. */
@@ -40,6 +40,8 @@ body{
 .wrap{max-width:720px;margin:0 auto}
 h1,h2,h3{margin:0;line-height:1.2;text-wrap:balance}
 h1{font-size:18px;font-weight:700;letter-spacing:.01em}
+.brand{display:flex;align-items:center;gap:10px}
+.brand img{border-radius:7px;display:block}
 h2{font-size:20px;font-weight:700}
 h3{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
 p{margin:0}
@@ -174,7 +176,7 @@ dialog::backdrop{background:rgba(5,10,16,.62)}
 <body>
 <div class="wrap">
   <header class="top">
-    <h1>Fotos de Campo</h1>
+    <h1 class="brand"><img src="icon-192.png" alt="" width="28" height="28">GeoPonto</h1>
     <span class="chip" id="gpsChip" data-s="off"><span class="dot"></span><span id="gpsTxt">GPS desligado</span></span>
   </header>
 
@@ -260,6 +262,10 @@ dialog::backdrop{background:rgba(5,10,16,.62)}
         <span class="muted small" id="selCount"></span>
       </div>
 
+      <div class="card-box" id="addrBar" hidden>
+        <p class="small" id="addrTxt"></p>
+        <button class="btn sm" id="btnAddrFill" type="button">Completar endereços agora</button>
+      </div>
       <div id="pts" class="view"></div>
       <div class="empty card-box" id="gEmpty" hidden>
         <p>Nenhum ponto neste projeto ainda.</p>
@@ -361,7 +367,7 @@ dialog::backdrop{background:rgba(5,10,16,.62)}
       <div class="card-box">
         <h3>Funcionamento sem internet</h3>
         <p id="offInfo" class="small"></p>
-        <p class="small muted">O GPS e a câmera não dependem de internet. Fotos e projetos ficam salvos no aparelho e o KMZ é gerado aqui mesmo. O município sai da coordenada, sem sinal, por uma base do IBGE guardada no app (aproximado perto de divisas). Só o endereço da rua precisa de sinal.</p>
+        <p class="small muted">O GPS e a câmera não dependem de internet. Fotos e projetos ficam salvos no aparelho e o KMZ é gerado aqui mesmo. O município sai da coordenada, sem sinal, por uma base do IBGE guardada no app (aproximado perto de divisas). O endereço da rua precisa de sinal: o app completa sozinho, ponto a ponto, quando a internet voltar, e as fotos já tiradas passam a mostrar o endereço.</p>
       </div>
 
       <div class="card-box">
@@ -437,6 +443,9 @@ dialog::backdrop{background:rgba(5,10,16,.62)}
     <div class="row">
       <button class="btn sm" id="tGps" type="button">Usar a posição atual do GPS</button>
     </div>
+    <label class="f">Endereço (completado sozinho quando há internet)
+      <input type="text" id="tAddr" autocomplete="off" placeholder="Rua, bairro, cidade">
+    </label>
     <p class="small muted">Se você digitar as coordenadas, o app deixa de trocá-las automaticamente por um GPS mais preciso.</p>
     <p class="err" id="tMsg" role="alert"></p>
     <div class="row">
@@ -6154,7 +6163,7 @@ function buildKML(o){
     var imgs=it.images.map(function(im){
       return '<div style="margin-top:10px"><img src="'+xmlEsc(im.path)+'" width="420"/>'+(im.cap?'<br/><i>'+xmlEsc(im.cap)+'</i>':'')+'</div>';
     }).join('');
-    out.push('<Placemark>','<name>'+xmlEsc(it.title)+'</name>','<styleUrl>#foto</styleUrl>',
+    out.push('<Placemark>','<name>'+xmlEsc(it.title)+'</name>',it.address?'<address>'+xmlEsc(it.address)+'</address>':'','<styleUrl>#foto</styleUrl>',
       '<TimeStamp><when>'+it.when+'</when></TimeStamp>',
       '<description><![CDATA[<div style="font-family:Arial,sans-serif;font-size:13px"><p>'+body+'</p>'+imgs+'</div>]]></description>',
       '<Point><coordinates>'+it.lon.toFixed(7)+','+it.lat.toFixed(7)+',0</coordinates></Point>','</Placemark>');
@@ -6286,6 +6295,14 @@ function cityOf(pos){
   if(!(key in _cityCache)){if(Object.keys(_cityCache).length>400)_cityCache={};_cityCache[key]=nearestMun(pos.lat,pos.lon,munList());}
   return _cityCache[key];
 }
+function addrValid(pt){
+  if(!pt||!pt.addr)return false;
+  if(pt.addrManual)return true;
+  if(!hasPos(pt)||pt.addrLat==null)return false;
+  var k=Math.cos(pt.lat*Math.PI/180),dy=(pt.lat-pt.addrLat)*111320,dx=(pt.lon-pt.addrLon)*111320*k;
+  return Math.sqrt(dx*dx+dy*dy)<40;
+}
+function ptAddr(pt){return addrValid(pt)?pt.addr:null;}
 function cityTail(pt){var c=hasPos(pt)?cityOf(pt):null;return c?' · '+c.name+'/'+c.uf:'';}
 
 /* ---------- legenda ---------- */
@@ -6294,7 +6311,9 @@ function captionLines(rec,ptOverride){
   if(rec.caption)L.push({t:rec.caption,b:true});
   if(pt)L.push({t:ptLabel(pt)});
   if(rec.local)L.push({t:rec.local});
-  var cy=(S.showCity&&pos)?cityOf(pos):null;
+  var ad=ptAddr(pt);
+  if(ad&&!(rec.local&&rec.local.toLowerCase()===ad.toLowerCase()))L.push({t:ad});
+  var cy=(S.showCity&&pos&&!ad)?cityOf(pos):null;
   if(cy&&!(rec.local&&rec.local.toLowerCase().indexOf(cy.name.toLowerCase())>=0))L.push({t:cy.name+'/'+cy.uf+' (aprox.)'});
   if(S.showProj&&p)L.push({t:projLine(p)});
   if(S.showCoords&&pos){
@@ -6311,6 +6330,7 @@ function pointDescLines(pt,p,photos){
   if(p.surveyor)L.push({t:'Levantador: '+p.surveyor});
   L.push({t:'Lat/Lon: '+fmtCoords(pt.lat,pt.lon,'dec')});
   L.push({t:'UTM: '+fmtCoords(pt.lat,pt.lon,'utm')});
+  if(ptAddr(pt))L.push({t:'Endereço: '+ptAddr(pt)});
   var cy=cityOf(pt);if(cy)L.push({t:'Município: '+cy.name+'/'+cy.uf+' (aproximado, base IBGE)'});
   if(pt.acc!=null)L.push({t:'Precisão do GPS: ±'+Math.round(pt.acc)+' m'});
   L.push({t:photos.length+(photos.length===1?' foto':' fotos')+' · '+fmtDate(photos[0].created)});
@@ -6514,7 +6534,7 @@ async function addPhoto(blob,meta){
   }
   var rec=Object.assign({id:newId(),projectId:p.id,pointId:pt.id,blob:blob,rev:0,local:'',caption:'',lat:null,lon:null,acc:null,created:Date.now()},meta);
   recs.push(rec);updatePointPos(pt,rec.lat,rec.lon,rec.acc);
-  await savePhoto(rec);await savePoint(pt);updateBadge();return rec;
+  await savePhoto(rec);await savePoint(pt);updateBadge();scheduleFill();return rec;
 }
 async function shoot(){
   if(!stream||!activeProj())return;
@@ -6671,14 +6691,15 @@ function renderGallery(){
     box.append(h('section',{class:'pblock'},
       h('div',{class:'pblock-h'},cb,
         h('div',{class:'tt'},h('div',{class:'t1',text:ptLabel(pt)}),
-          h('div',{class:'t2'+(hasPos(pt)?' mono':' tag-warn'),text:ptSubText(pt)})),
+          h('div',{class:'t2'+(hasPos(pt)?' mono':' tag-warn'),text:ptSubText(pt)}),
+          ptAddr(pt)?h('div',{class:'t2',text:ptAddr(pt)}):null),
         h('div',{class:'n',text:photos.length+(photos.length===1?' foto':' fotos')})),
       grid,
       h('div',{class:'row'},
         h('button',{class:'btn sm',type:'button',onclick:function(){continuePoint(pt.id);}},'Fotografar aqui'),
         h('button',{class:'btn sm',type:'button',onclick:function(){openPtDialog(pt);}},'Editar ponto'))));
   });
-  updateSel();
+  updateSel();updateAddrBar();
   (async function(){for(var i=0;i<queue.length;i++){if(token!==thumbToken)return;try{await setThumb(queue[i],token);}catch(e){}}})();
 }
 async function continuePoint(id){
@@ -6689,12 +6710,12 @@ async function continuePoint(id){
 }
 
 /* ---------- edição de ponto ---------- */
-var editingPt=null;
+var editingPt=null,ptAddrAtOpen='';
 function parseCoord(s,min,max){s=String(s).trim().replace(',','.');if(s==='')return null;var v=Number(s);if(!isFinite(v)||v<min||v>max)return NaN;return v;}
 function openPtDialog(pt){
   editingPt=pt;$('#ptdlgTitle').textContent='Editar '+ptShort(pt);
   $('#tName').value=pt.name||'';$('#tLat').value=hasPos(pt)?pt.lat.toFixed(7):'';$('#tLon').value=hasPos(pt)?pt.lon.toFixed(7):'';
-  $('#tMsg').textContent='';
+  ptAddrAtOpen=ptAddr(pt)||'';$('#tAddr').value=ptAddrAtOpen;$('#tMsg').textContent='';
   if(typeof $('#ptdlg').showModal==='function')$('#ptdlg').showModal();else $('#ptdlg').setAttribute('open','');
 }
 function closePtDialog(){editingPt=null;if($('#ptdlg').open)$('#ptdlg').close();}
@@ -6709,7 +6730,12 @@ async function savePtDialog(){
     if(la==null){pt.lat=null;pt.lon=null;pt.acc=null;pt.manual=false;}
     else{pt.lat=la;pt.lon=lo;pt.acc=null;pt.manual=true;}
   }
-  await savePoint(pt);closePtDialog();thumbsDirty=true;renderGallery();updatePointPanel();toast('Ponto atualizado.');
+  var newAddr=$('#tAddr').value.trim(),oldAddr=ptAddrAtOpen;
+  if(newAddr!==oldAddr){
+    if(newAddr){pt.addr=newAddr;pt.addrManual=true;pt.addrLat=pt.lat;pt.addrLon=pt.lon;}
+    else{pt.addr=null;pt.addrManual=false;pt.addrLat=null;pt.addrLon=null;}
+  }
+  await savePoint(pt);closePtDialog();thumbsDirty=true;renderGallery();updatePointPanel();updateOverlay();scheduleFill();toast('Ponto atualizado.');
 }
 async function deletePoint(){
   var pt=editingPt;if(!pt)return;
@@ -6786,7 +6812,7 @@ async function makeKMZ(pts,p,onProg){
       files.push({name:path,data:new Uint8Array(await b.arrayBuffer())});
       images.push({path:path,cap:r.caption||''});
     }
-    items.push({title:ptLabel(pt),lines:pointDescLines(pt,p,photos),images:images,lat:pt.lat,lon:pt.lon,when:new Date(photos[0].created).toISOString()});
+    items.push({title:ptLabel(pt),address:ptAddr(pt),lines:pointDescLines(pt,p,photos),images:images,lat:pt.lat,lon:pt.lon,when:new Date(photos[0].created).toISOString()});
   }
   var desc=(p.surveyor?'Levantador: '+p.surveyor+' · ':'')+'Gerado em '+fmtDate(Date.now());
   var line=S.expLine?withGps.map(function(x){return [x.lon,x.lat];}):null;
@@ -6912,9 +6938,42 @@ function setupOffline(){
     navigator.serviceWorker.register('sw.js').catch(function(err){diagnoseOffline(err);});
     navigator.serviceWorker.ready.then(function(){el.textContent='Pronto: o app abre e funciona sem internet, mesmo depois de fechado.';});
   }
-  window.addEventListener('offline',function(){toast('Sem internet. Tudo continua funcionando e fica salvo no aparelho.',5000);});
-  window.addEventListener('online',function(){toast('Internet de volta.',2500);});
+  window.addEventListener('offline',function(){toast('Sem internet. Tudo continua funcionando e fica salvo no aparelho.',5000);updateAddrBar();});
+  window.addEventListener('online',function(){toast('Internet de volta.',2500);scheduleFill();updateAddrBar();});
   if(navigator.storage&&navigator.storage.persist){try{navigator.storage.persist();}catch(e){}}
+}
+
+/* ---------- endereços completados quando há internet ---------- */
+var filling=false,fillT=0,lastFillFail=0;
+function pendingAddr(pid){return projPoints(pid).filter(function(x){return hasPos(x)&&!addrValid(x);});}
+function updateAddrBar(){
+  var box=$('#addrBar'),pend=S.activeProject?pendingAddr(S.activeProject):[];
+  box.hidden=!pend.length;
+  if(pend.length)$('#addrTxt').textContent=pend.length+(pend.length===1?' ponto ainda sem endereço. ':' pontos ainda sem endereço. ')+(navigator.onLine?'O app busca sozinho.':'Sem internet agora: o app completa sozinho quando o sinal voltar. As fotos já tiradas passam a mostrar o endereço.');
+}
+function scheduleFill(){clearTimeout(fillT);fillT=setTimeout(function(){fillAddresses(false);},2500);}
+async function fillAddresses(manual){
+  if(filling)return;
+  var list=points.filter(function(x){return hasPos(x)&&!addrValid(x);});
+  if(!list.length){if(manual)toast('Todos os pontos já têm endereço.');return;}
+  if(!navigator.onLine){if(manual)toast('Sem internet agora. O app completa sozinho quando o sinal voltar.',5000);return;}
+  if(!manual&&Date.now()-lastFillFail<60000)return;
+  filling=true;var done=0,failed=false,btn=$('#btnAddrFill');if(btn)btn.disabled=true;
+  try{
+    for(var i=0;i<list.length&&i<300;i++){
+      var pt=list[i];
+      try{
+        var a=await geocode(pt.lat,pt.lon);
+        pt.addr=a;pt.addrLat=pt.lat;pt.addrLon=pt.lon;pt.addrManual=false;await savePoint(pt);done++;
+        if(manual)toast('Completando endereços… '+done+'/'+list.length,2000);
+      }catch(e){failed=true;lastFillFail=Date.now();break;}
+      if(i<list.length-1)await new Promise(function(r){setTimeout(r,1150);});
+    }
+  }finally{filling=false;if(btn)btn.disabled=false;}
+  if(done){thumbsDirty=true;toast(done+(done===1?' endereço completado.':' endereços completados.')+(failed?' Alguns ficaram para depois.':''),4000);}
+  else if(failed&&manual)toast('Não consegui buscar os endereços agora. Tente de novo com mais sinal.',5000);
+  if(done){if(view==='gal')renderGallery();updatePointPanel();updateOverlay();}
+  updateAddrBar();
 }
 
 /* ---------- instalar o app ---------- */
@@ -7081,8 +7140,10 @@ function show(name){
     ?'Com "Escolher onde salvar", o navegador abre a janela para você escolher a pasta e o nome a cada exportação.'
     :'Este navegador não deixa o app escolher a pasta. No Chrome do celular, ligue em Configurações > Downloads a opção de perguntar onde salvar os arquivos, ou use "Compartilhar KMZ" para enviar ao Drive ou WhatsApp.';
   $('#btnInstall').addEventListener('click',doInstall);$('#btnInstall2').addEventListener('click',doInstall);
+  $('#btnAddrFill').addEventListener('click',function(){fillAddresses(true);});
   setupOffline();
   show(activeProj()?'cam':'proj');
+  scheduleFill();
 })();
 </script>
 </body>
