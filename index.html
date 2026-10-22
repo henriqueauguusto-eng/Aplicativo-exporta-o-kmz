@@ -238,6 +238,10 @@ dialog::backdrop{background:rgba(5,10,16,.62)}
           <input type="text" id="fPtName" placeholder="Ex.: Poste 12, ou o número da placa" autocomplete="off">
         </label>
         <div class="qchips" id="qchips"></div>
+        <label class="f">Endereço do ponto
+          <input type="text" id="fAddr" placeholder="Preenchido sozinho pelo GPS; você pode digitar" autocomplete="off">
+        </label>
+        <div class="small muted" id="addrSt"></div>
         <label class="f">Legenda desta foto
           <input type="text" id="fCap" data-s="caption" placeholder="Toque numa legenda rápida ou digite" autocomplete="off">
         </label>
@@ -245,12 +249,11 @@ dialog::backdrop{background:rgba(5,10,16,.62)}
 
       <div class="card-box">
         <div class="row">
-          <label class="f grow">Local
-            <input type="text" id="fLocal" placeholder="Ex.: Rua das Flores, bairro Centro" autocomplete="off">
+          <label class="f grow">Referência do local (opcional, fixa no projeto)
+            <input type="text" id="fLocal" placeholder="Ex.: Bairro Centro, Av. Principal" autocomplete="off">
           </label>
-          <button class="btn sm" id="btnAddr" type="button">Endereço pelo GPS</button>
         </div>
-        <p class="small muted">O local fica salvo no projeto. O endereço automático precisa de internet; sem sinal, digite à mão.</p>
+        <p class="small muted">Serve para uma referência que vale para todas as fotos. O endereço de cada ponto é buscado sozinho pelo GPS (campo acima).</p>
         <button class="btn" id="btnNative" type="button">Usar o app de câmera do aparelho</button>
       </div>
     </section>
@@ -336,6 +339,9 @@ dialog::backdrop{background:rgba(5,10,16,.62)}
           <button class="btn" id="btnLogo" type="button">Escolher imagem</button>
           <button class="btn" id="btnLogoDel" type="button">Remover</button>
         </div>
+        <label class="f">Opacidade da logo: <b id="logoOpVal">100%</b>
+          <input type="range" min="10" max="100" step="5" data-s="logoOpacity" id="logoOp">
+        </label>
         <div class="row">
           <label class="f grow">Posição na foto
             <select data-s="logoPos">
@@ -345,6 +351,7 @@ dialog::backdrop{background:rgba(5,10,16,.62)}
           </label>
         </div>
         <label class="check"><input type="checkbox" data-s="showLogo"> Mostrar a logo nas fotos</label>
+        <label class="check"><input type="checkbox" data-s="autoAddr"> Buscar o endereço do ponto sozinho pelo GPS (precisa de internet)</label>
         <p class="small muted">PNG com fundo transparente funciona melhor. A logo fica sobre uma plaquinha branca para continuar legível em qualquer foto.</p>
       </div>
 
@@ -6252,12 +6259,14 @@ function armed(btn,label,armedLabel,fn){
 /* ---------- configurações ---------- */
 var S={caption:'',clearCaption:true,autoAdvance:true,
   quick:['Base do poste','Placa do poste','Transformador','Estrutura / cruzeta','Vista geral'],
-  coordFmt:'dec',showProj:true,showDate:true,showCoords:true,showAcc:true,showLogo:true,logo:null,logoPos:'tr',
+  coordFmt:'dec',showProj:true,showDate:true,showCoords:true,showAcc:true,showLogo:true,logo:null,logoPos:'tr',logoOpacity:100,autoAddr:true,
   expSize:'1600',expBurn:true,expLine:false,showCity:true,saveMode:'ask',autostart:false,activeProject:null};
-var RENDER_KEYS={coordFmt:1,showProj:1,showDate:1,showCoords:1,showAcc:1,showLogo:1,logoPos:1,showCity:1};
+var RENDER_KEYS={coordFmt:1,showProj:1,showDate:1,showCoords:1,showAcc:1,showLogo:1,logoPos:1,logoOpacity:1,showCity:1};
 var thumbsDirty=false;
 function loadSettings(){try{Object.assign(S,JSON.parse(localStorage.getItem('fc.s')||'{}'));}catch(e){}if(!Array.isArray(S.quick))S.quick=[];}
 function saveSettings(){try{localStorage.setItem('fc.s',JSON.stringify(S));}catch(e){toast('Não foi possível guardar os ajustes neste navegador.');}}
+function logoOp(){var v=+S.logoOpacity;return (isNaN(v)||v<10||v>100?100:v)/100;}
+function logoOpUI(){var e=document.getElementById('logoOpVal');if(e)e.textContent=Math.round(logoOp()*100)+'%';var i=document.querySelector('#logoPrev img');if(i)i.style.opacity=logoOp();}
 function bindSettings(){
   document.querySelectorAll('[data-s]').forEach(function(el){
     var k=el.dataset.s;
@@ -6265,6 +6274,8 @@ function bindSettings(){
     el.addEventListener('input',function(){
       S[k]=el.type==='checkbox'?el.checked:el.value; saveSettings();
       if(RENDER_KEYS[k])thumbsDirty=true;
+      if(k==='logoOpacity'){S[k]=+el.value;logoOpUI();}
+      if(k==='autoAddr'){updateAddrField();if(S.autoAddr)refreshLiveAddr(true);}
       updateOverlay();
     });
   });
@@ -6370,8 +6381,9 @@ function drawComposite(src,rec,o){
     var lw0=logoImg.naturalWidth,lh0=logoImg.naturalHeight;
     var kk=Math.min(hh*0.11/lh0,w*0.30/lw0),lw=lw0*kk,lhh=lh0*kk,p=Math.round(fs*0.4);
     var px=S.logoPos==='tl'?pad:w-pad-lw-2*p;
+    x.save();x.globalAlpha=logoOp();
     x.fillStyle='rgba(255,255,255,0.92)';roundRect(x,px,pad,lw+2*p,lhh+2*p,p*0.8);x.fill();
-    x.drawImage(logoImg,px+p,pad+p,lw,lhh);
+    x.drawImage(logoImg,px+p,pad+p,lw,lhh);x.restore();
   }
   return c;
 }
@@ -6424,11 +6436,56 @@ function startGPS(){
   setGps('wait','Buscando GPS…');
   gpsWatch=navigator.geolocation.watchPosition(function(p){
     fix={lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy,t:Date.now()};
-    gpsFromFix();updateOverlay();
+    gpsFromFix();updateOverlay();refreshLiveAddr(false);
   },function(e){
     if(e.code===1){setGps('bad','GPS negado');gpsWatch=null;}
     else if(!fix)setGps('wait','Buscando GPS…');
   },{enableHighAccuracy:true,maximumAge:3000,timeout:30000});
+}
+/* ---------- endereço automático do ponto ---------- */
+var live={addr:null,lat:null,lon:null,busy:false,tried:0,failAt:0},pendingAddrText='',addrFailed=false;
+function liveValid(){
+  if(!live.addr||!fix||live.lat==null)return false;
+  var k=Math.cos(fix.lat*Math.PI/180),dy=(fix.lat-live.lat)*111320,dx=(fix.lon-live.lon)*111320*k;
+  return Math.sqrt(dx*dx+dy*dy)<40;
+}
+async function refreshLiveAddr(force){
+  if(!S.autoAddr||!fix||live.busy||!navigator.onLine)return;
+  if(liveValid())return;
+  var now=Date.now();
+  if(!force&&(now-live.tried<8000||now-live.failAt<30000))return;
+  live.busy=true;live.tried=now;var lt=fix.lat,ln=fix.lon;
+  try{
+    var a=await geocode(lt,ln);
+    live.addr=a;live.lat=lt;live.lon=ln;addrFailed=false;
+  }catch(e){live.failAt=Date.now();addrFailed=true;}
+  live.busy=false;
+  /* se o ponto atual já existe e ainda está sem endereço, o motor de preenchimento cuida dele */
+  updateAddrField();updateOverlay();if(live.addr)scheduleFill();
+}
+function stubAddr(){
+  if(pendingAddrText)return {addr:pendingAddrText,addrManual:true};
+  if(S.autoAddr&&liveValid())return {addr:live.addr,addrLat:live.lat,addrLon:live.lon,addrManual:false};
+  return {};
+}
+function updateAddrField(){
+  var inp=document.getElementById('fAddr'),st=document.getElementById('addrSt');if(!inp)return;
+  var pt=curPoint(),txt='',msg='';
+  if(pt){
+    var a=ptAddr(pt);
+    if(a){txt=a;msg=pt.addrManual?'Endereço digitado por você.':'Endereço automático pelo GPS. Pode corrigir digitando.';}
+    else if(hasPos(pt)&&S.autoAddr)msg=navigator.onLine?'Buscando o endereço…':'Sem internet: o app completa sozinho quando o sinal voltar.';
+    else msg=S.autoAddr?'Aguardando o GPS.':'Busca automática desligada (Ajustes). Digite o endereço.';
+  }else{
+    var sa=stubAddr();
+    if(sa.addr){txt=sa.addr;msg=sa.addrManual?'Endereço digitado por você.':'Endereço automático pelo GPS. Pode corrigir digitando.';}
+    else if(!S.autoAddr)msg='Busca automática desligada (Ajustes). Digite o endereço.';
+    else if(!fix)msg='Aguardando o GPS para buscar o endereço.';
+    else if(!navigator.onLine)msg='Sem internet: a foto sai com o município aproximado e o endereço entra sozinho quando o sinal voltar. Se quiser, digite.';
+    else msg=addrFailed?'Não consegui buscar agora. Vou tentar de novo; ou digite o endereço.':'Buscando o endereço…';
+  }
+  if(document.activeElement!==inp)inp.value=txt;
+  st.textContent=msg;
 }
 async function geocode(lat,lon){
   var r=await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&accept-language=pt-BR&lat='+lat+'&lon='+lon);
@@ -6470,11 +6527,12 @@ function updatePointPanel(){
     $('#fPtName').value=pendingName;
   }
   $('#btnNextPt').disabled=!pt;
+  updateAddrField();
 }
 async function setCurPoint(id){var p=activeProj();if(!p)return;p.curPoint=id;await saveProject(p);}
 async function nextPoint(){
   if(!curPoint()){toast('Você já está em um ponto novo. Tire a primeira foto.');return;}
-  await setCurPoint(null);pendingName='';
+  await setCurPoint(null);pendingName='';pendingAddrText='';
   setCaption(S.autoAdvance&&S.quick[0]?S.quick[0]:'');
   updatePointPanel();updateOverlay();toast('Pronto para o próximo ponto.');
 }
@@ -6513,12 +6571,12 @@ function currentLocal(){var p=activeProj();return p&&p.local?p.local:'';}
 function updateOverlay(){
   var ov=$('#ov'),lg=$('#ovLogo'),p=activeProj();
   if(!stream||!p){ov.hidden=true;lg.hidden=true;return;}
-  var pt=curPoint()||{seq:nextSeq(p.id),name:pendingName.trim(),lat:null,lon:null,acc:null};
+  var pt=curPoint()||Object.assign({seq:nextSeq(p.id),name:pendingName.trim(),lat:fix?fix.lat:null,lon:fix?fix.lon:null,acc:fix?fix.acc:null},stubAddr());
   var rec={projectId:p.id,caption:S.caption,local:p.local||'',lat:fix?fix.lat:null,lon:fix?fix.lon:null,acc:fix?fix.acc:null,created:Date.now()};
   var L=captionLines(rec,pt);
   ov.replaceChildren.apply(ov,L.map(function(l){return h('div',{class:(l.b?'b ':'')+(l.m?'m':''),text:l.t});}));
   ov.hidden=!L.length;
-  if(S.showLogo&&S.logo){if(lg.getAttribute('src')!==S.logo)lg.src=S.logo;lg.className='ovlogo '+S.logoPos;lg.hidden=false;}else lg.hidden=true;
+  if(S.showLogo&&S.logo){if(lg.getAttribute('src')!==S.logo)lg.src=S.logo;lg.className='ovlogo '+S.logoPos;lg.style.opacity=logoOp();lg.hidden=false;}else lg.hidden=true;
 }
 /* A posição do ponto é a de melhor precisão entre as fotos dele, a menos que tenha sido digitada. */
 function updatePointPos(pt,lat,lon,acc){
@@ -6530,6 +6588,8 @@ async function addPhoto(blob,meta){
   var pt=curPoint();
   if(!pt){
     pt={id:newId(),projectId:p.id,seq:nextSeq(p.id),name:pendingName.trim(),lat:null,lon:null,acc:null,manual:false,created:Date.now()};
+    var sa=stubAddr();if(sa.addr){pt.addr=sa.addr;pt.addrManual=!!sa.addrManual;if(!sa.addrManual){pt.addrLat=sa.addrLat;pt.addrLon=sa.addrLon;}}
+    pendingAddrText='';
     points.push(pt);selected.add(pt.id);p.curPoint=pt.id;pendingName='';await saveProject(p);
   }
   var rec=Object.assign({id:newId(),projectId:p.id,pointId:pt.id,blob:blob,rev:0,local:'',caption:'',lat:null,lon:null,acc:null,created:Date.now()},meta);
@@ -6904,6 +6964,7 @@ async function doZip(){
 function updateLogoPreview(){
   var p=$('#logoPrev');
   if(S.logo)p.replaceChildren(h('img',{src:S.logo,alt:'Logo da empresa'}));else p.replaceChildren(h('span',{text:'Nenhuma logo'}));
+  logoOpUI();
 }
 function setLogo(dataUrl){
   S.logo=dataUrl||null;saveSettings();thumbsDirty=true;logoImg=null;updateLogoPreview();
@@ -7071,18 +7132,19 @@ function show(name){
   $('#btnNative').addEventListener('click',function(){startGPS();$('#inCam').click();});
   $('#inCam').addEventListener('change',async function(e){var f=Array.prototype.slice.call(e.target.files);e.target.value='';await importFiles(f,true);});
   $('#inGal').addEventListener('change',async function(e){var f=Array.prototype.slice.call(e.target.files);e.target.value='';await importFiles(f,false);});
-  $('#btnAddr').addEventListener('click',async function(){
-    var p=activeProj();if(!p)return;
-    if(!fix){toast('Ainda não há posição do GPS.');return;}
-    var b=$('#btnAddr');b.disabled=true;
-    try{var a=await geocode(fix.lat,fix.lon);p.local=a;$('#fLocal').value=a;await saveProject(p);updateOverlay();toast('Endereço preenchido. Ajuste se quiser.');}
-    catch(e){
-      var cy=cityOf(fix);
-      if(cy){p.local=cy.name+'/'+cy.uf;$('#fLocal').value=p.local;await saveProject(p);updateOverlay();toast('Sem internet: preenchi só o município ('+cy.name+'/'+cy.uf+', aproximado). Digite o endereço se precisar.',6000);}
-      else toast('Não consegui buscar o endereço (precisa de internet). Digite o local à mão.');
-    }
-    b.disabled=false;
+  var addrT=0;
+  $('#fAddr').addEventListener('input',function(){
+    var v=$('#fAddr').value.trim(),pt=curPoint();
+    if(pt){
+      if(v){pt.addr=v;pt.addrManual=true;pt.addrLat=pt.lat;pt.addrLon=pt.lon;}
+      else{pt.addr=null;pt.addrManual=false;pt.addrLat=null;pt.addrLon=null;}
+      thumbsDirty=true;clearTimeout(addrT);addrT=setTimeout(function(){savePoint(pt);if(!v)scheduleFill();},400);
+    }else pendingAddrText=v;
+    updateOverlay();
   });
+  $('#fAddr').addEventListener('blur',updateAddrField);
+  window.addEventListener('online',function(){refreshLiveAddr(true);updateAddrField();});
+  window.addEventListener('offline',updateAddrField);
 
   $('#btnKmz').addEventListener('click',function(){doKMZ(selectedPoints(),activeProj(),$('#btnKmz'),false);});
   $('#btnKmzShare').addEventListener('click',function(){doKMZ(selectedPoints(),activeProj(),$('#btnKmzShare'),true);});
