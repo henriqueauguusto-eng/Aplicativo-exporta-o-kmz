@@ -190,6 +190,10 @@ dialog::backdrop{background:rgba(5,10,16,.62)}
         <h2>Projetos</h2>
         <button class="btn primary" id="btnNewProj" type="button">Novo projeto</button>
       </div>
+      <div class="card-box" id="instBanner" hidden>
+        <p class="small"><b>Instale o app no celular.</b> Ele ganha um ícone, abre em tela cheia e funciona sem internet.</p>
+        <button class="btn primary" id="btnInstall2" type="button">Instalar app</button>
+      </div>
       <div class="plist" id="projList"></div>
       <div class="empty card-box" id="projEmpty" hidden>
         <p>Crie o primeiro projeto para começar o levantamento. Cada poste vira um ponto, com todas as suas fotos juntas.</p>
@@ -303,6 +307,12 @@ dialog::backdrop{background:rgba(5,10,16,.62)}
     <!-- AJUSTES -->
     <section id="v-cfg" class="view" hidden>
       <h2>Ajustes</h2>
+
+      <div class="card-box">
+        <h3>Instalar o app</h3>
+        <p class="small" id="instInfo"></p>
+        <button class="btn primary" id="btnInstall" type="button" hidden>Instalar app</button>
+      </div>
 
       <div class="card-box">
         <h3>Legendas rápidas</h3>
@@ -6907,6 +6917,27 @@ function setupOffline(){
   if(navigator.storage&&navigator.storage.persist){try{navigator.storage.persist();}catch(e){}}
 }
 
+/* ---------- instalar o app ---------- */
+var deferredInstall=null;
+function isStandalone(){return (window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true;}
+function isIOS(){return /iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);}
+function updateInstallUI(){
+  var info=$('#instInfo'),st=isStandalone(),can=!!deferredInstall&&!st;
+  $('#btnInstall').hidden=!can;$('#instBanner').hidden=!(can&&view==='proj');
+  if(st)info.textContent='O app já está instalado e aberto como aplicativo.';
+  else if(can)info.textContent='Toque no botão para colocar o app na tela do celular. Ele abre em tela cheia e funciona sem internet.';
+  else if(isIOS())info.textContent='No iPhone: abra este link no Safari, toque no botão de compartilhar e escolha "Adicionar à Tela de Início".';
+  else if(!/^https?:$/.test(location.protocol))info.textContent='Para instalar, abra o app pelo link https (GitHub Pages ou Netlify), não pelo arquivo.';
+  else info.textContent='O botão de instalar aparece aqui quando o Chrome liberar. Se não aparecer, toque nos três pontinhos do Chrome e escolha "Instalar app" ou "Adicionar à tela inicial". Se você abriu o link pelo WhatsApp, Instagram ou outro navegador interno, abra-o no Chrome.';
+}
+async function doInstall(){
+  var ev=deferredInstall;if(!ev)return;
+  try{await ev.prompt();await ev.userChoice;}catch(e){}
+  deferredInstall=null;updateInstallUI();
+}
+window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();deferredInstall=e;updateInstallUI();});
+window.addEventListener('appinstalled',function(){deferredInstall=null;updateInstallUI();toast('App instalado.');});
+
 /* ---------- navegação ---------- */
 var view='proj';
 function show(name){
@@ -6917,7 +6948,7 @@ function show(name){
   if(name==='cam'){updatePointPanel();if(camWanted||S.autostart)startCamera();else idle('Ative a câmera e o GPS para registrar fotos com local, coordenadas e data impressos.',true);}else{stopCamera();}
   if(name==='gal')renderGallery();
   if(name==='proj')renderProjects();
-  updateProjBar();
+  updateProjBar();updateInstallUI();
   window.scrollTo(0,0);
 }
 
@@ -7049,6 +7080,7 @@ function show(name){
   $('#saveNote').textContent=canPick()
     ?'Com "Escolher onde salvar", o navegador abre a janela para você escolher a pasta e o nome a cada exportação.'
     :'Este navegador não deixa o app escolher a pasta. No Chrome do celular, ligue em Configurações > Downloads a opção de perguntar onde salvar os arquivos, ou use "Compartilhar KMZ" para enviar ao Drive ou WhatsApp.';
+  $('#btnInstall').addEventListener('click',doInstall);$('#btnInstall2').addEventListener('click',doInstall);
   setupOffline();
   show(activeProj()?'cam':'proj');
 })();
