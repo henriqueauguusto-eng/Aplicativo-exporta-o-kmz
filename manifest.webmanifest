@@ -1,0 +1,15 @@
+{
+  "name": "Fotos de Campo",
+  "short_name": "Fotos de Campo",
+  "description": "Levantamento fotográfico por ponto, com coordenadas e exportação KMZ.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#EEF1F4",
+  "theme_color": "#B4521C",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
